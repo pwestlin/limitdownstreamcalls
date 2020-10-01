@@ -5,6 +5,8 @@ package nu.westlin.limitdownstreamcalls
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
@@ -45,16 +47,21 @@ class DoShit(
     private val logger: Logger = LoggerFactory.getLogger(this.javaClass)
 
     fun runShit() {
+
+        val mainSemaphore = Semaphore(1)
+
         val execTime = measureTimeMillis {
             runBlocking {
                 val uuidn = pantameraRepository.getFastighetsreferensen()
                 uuidn.map { uuid ->
                     async {
-                        logger.info("Arbetar med fastighetsreferens $uuid")
-                        val inteckningar = dominiumRepository.getInteckningar(uuid)
-                        val panter: List<Pant> = inteckningar.map { valvetRepository.getPant(it.id) }
-                        val antalInteckningar: Int = pantameraRepository.getAntalInteckningar(uuid)
-                        logger.info("Klar med fastighetsreferens $uuid")
+                        mainSemaphore.withPermit {
+                            logger.info("Arbetar med fastighetsreferens $uuid")
+                            val inteckningar = dominiumRepository.getInteckningar(uuid)
+                            val panter: List<Pant> = inteckningar.map { valvetRepository.getPant(it.id) }
+                            val antalInteckningar: Int = pantameraRepository.getAntalInteckningar(uuid)
+                            logger.info("Klar med fastighetsreferens $uuid")
+                        }
                     }
                 }.awaitAll()
             }
