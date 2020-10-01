@@ -3,8 +3,12 @@
 package nu.westlin.limitdownstreamcalls
 
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.flow.asFlow
+import kotlinx.coroutines.flow.buffer
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -54,27 +58,34 @@ class DoShit(
 
         val execTime = measureTimeMillis {
             runBlocking {
-                val uuidn = pantameraRepository.getFastighetsreferensen()
-                uuidn.map { uuid ->
-                    async {
-                        logger.info("Arbetar med fastighetsreferens $uuid")
+                val uuidn = pantameraRepository.getFastighetsreferenser().asFlow()
+                val deferreds = ArrayList<Deferred<Unit>>()
+                uuidn
+                    .buffer(50)
+                    // map gör saker seventiellt (och är ett sk "intermediate step" som startar först när man gör collect) så det blev inte bra.
+                    // collect med deferreds funkar.
+                    .collect { uuid ->
+                        deferreds.add(
+                            async(Dispatchers.IO) {
+                                logger.info("Arbetar med fastighetsreferens $uuid")
 
-                        val antalInteckningar: Deferred<Int> =
-                            async { pantameraRepository.getAntalInteckningar(uuid) }
+                                val antalInteckningar: Deferred<Int> =
+                                    async { pantameraRepository.getAntalInteckningar(uuid) }
 
-                        val inteckningar = async {
-                            dominiumRepository.getInteckningar(uuid)
-                        }
-                        val panter: List<Deferred<Pant>> = inteckningar.await().map {
-                            async { valvetRepository.getPant(it.id) }
-                        }
+                                val inteckningar = async {
+                                    dominiumRepository.getInteckningar(uuid)
+                                }
+                                val panter: List<Deferred<Pant>> = inteckningar.await().map {
+                                    async { valvetRepository.getPant(it.id) }
+                                }
 
-                        panter.awaitAll()
-                        antalInteckningar.await()
+                                panter.awaitAll()
+                                antalInteckningar.await()
 
-                        logger.info("Klar med fastighetsreferens $uuid")
+                                logger.info("Klar med fastighetsreferens $uuid")
+                            })
                     }
-                }.awaitAll()
+                deferreds.awaitAll()
             }
         }
 
@@ -94,7 +105,7 @@ class PantameraRepository(
 
     private val fastighetsreferenser = (1..20).map { it.toString() }.toList()
 
-    suspend fun getFastighetsreferensen(): List<String> {
+    suspend fun getFastighetsreferenser(): List<String> {
         semaphore.withPermit {
             webClient.get()
                 .uri("/Pantamera-uuidn/1")

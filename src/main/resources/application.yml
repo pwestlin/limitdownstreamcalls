@@ -3,7 +3,7 @@ spring.main.web-application-type: NONE
 repository.baseUrl: http://localhost:8080
 
 semaphore:
-  main.size: 100
+  main.size: 10
   dominium.size: 10
   valvet.size: 20
   pantamera.size: 40
