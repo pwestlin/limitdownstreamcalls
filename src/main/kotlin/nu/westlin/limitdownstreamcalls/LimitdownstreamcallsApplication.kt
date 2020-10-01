@@ -1,4 +1,4 @@
-@file:Suppress("UNUSED_VARIABLE", "unused")
+@file:Suppress("UNUSED_VARIABLE", "unused", "SpringFacetCodeInspection")
 
 package nu.westlin.limitdownstreamcalls
 
@@ -40,6 +40,7 @@ class Configuration {
 
 @Service
 class DoShit(
+    @Value("\${semaphore.main.size}") mainSemaphoreSize: Int,
     private val pantameraRepository: PantameraRepository,
     private val dominiumRepository: DominiumRepository,
     private val valvetRepository: ValvetRepository
@@ -47,17 +48,9 @@ class DoShit(
 
     private val logger: Logger = LoggerFactory.getLogger(this.javaClass)
 
+    private val mainSemaphore = Semaphore(mainSemaphoreSize)
+
     fun runShit() {
-
-        // TODO petves: Begränsa detta med en trådpool istället?
-        val mainSemaphore = Semaphore(100)
-
-        // Dominium klarar 10 samtidiga anrop
-        val dominiumSemaphore = Semaphore(10)
-        // Valvet klarar 20 samtidiga anrop
-        val valvetSemaphore = Semaphore(1)
-        // Pantamera klarar 40 samtidiga anrop
-        val pantameraSemaphore = Semaphore(10)
 
         val execTime = measureTimeMillis {
             runBlocking {
@@ -66,17 +59,16 @@ class DoShit(
                     async {
                         logger.info("Arbetar med fastighetsreferens $uuid")
 
+                        val antalInteckningar: Deferred<Int> =
+                            async { pantameraRepository.getAntalInteckningar(uuid) }
+
                         val inteckningar = async {
-                            dominiumSemaphore.withPermit { dominiumRepository.getInteckningar(uuid) }
+                            dominiumRepository.getInteckningar(uuid)
                         }
                         val panter: List<Deferred<Pant>> = inteckningar.await().map {
-                            valvetSemaphore.withPermit {
-                                async { valvetRepository.getPant(it.id) }
-                            }
+                            async { valvetRepository.getPant(it.id) }
                         }
-                        val antalInteckningar: Deferred<Int> = pantameraSemaphore.withPermit {
-                            async { pantameraRepository.getAntalInteckningar(uuid) }
-                        }
+
                         panter.awaitAll()
                         antalInteckningar.await()
 
@@ -92,66 +84,87 @@ class DoShit(
 }
 
 @Repository
-class PantameraRepository(private val webClient: WebClient) {
+class PantameraRepository(
+    @Value("\${semaphore.pantamera.size}") semaphoreSize: Int,
+    private val webClient: WebClient) {
 
     private val logger: Logger = LoggerFactory.getLogger(this.javaClass)
+
+    private val semaphore = Semaphore(semaphoreSize)
 
     private val fastighetsreferenser = (1..20).map { it.toString() }.toList()
 
     suspend fun getFastighetsreferensen(): List<String> {
-        webClient.get()
-            .uri("/Pantamera-uuidn/1")
-            .awaitExchange()
-            .awaitBody<ApplicationDelay>()
+        semaphore.withPermit {
+            webClient.get()
+                .uri("/Pantamera-uuidn/1")
+                .awaitExchange()
+                .awaitBody<ApplicationDelay>()
 
-        return fastighetsreferenser
+            return fastighetsreferenser
+        }
     }
 
     suspend fun getAntalInteckningar(uuid: String): Int {
-        webClient.get()
-            .uri("/Pantamera-antalInteckningar/1")
-            .awaitExchange()
-            .awaitBody<ApplicationDelay>()
+        semaphore.withPermit {
+            webClient.get()
+                .uri("/Pantamera-antalInteckningar/1")
+                .awaitExchange()
+                .awaitBody<ApplicationDelay>()
 
-        return 3
+            return 3
+        }
     }
 
 }
 
 @Repository
-class DominiumRepository(private val webClient: WebClient) {
+class DominiumRepository(
+    @Value("\${semaphore.dominium.size}") semaphoreSize: Int,
+    private val webClient: WebClient
+) {
 
     private val logger: Logger = LoggerFactory.getLogger(this.javaClass)
+
+    private val semaphore = Semaphore(semaphoreSize)
 
     suspend fun getInteckningar(fastighetsreferens: String): List<Inteckning> {
-        webClient.get()
-            .uri("/Dominium-inteckning-fastighetsreferens:$fastighetsreferens/100")
-            .awaitExchange()
-            .awaitBody<ApplicationDelay>()
+        semaphore.withPermit {
+            webClient.get()
+                .uri("/Dominium-inteckning-fastighetsreferens:$fastighetsreferens/100")
+                .awaitExchange()
+                .awaitBody<ApplicationDelay>()
 
-        return listOf(
-            Inteckning("$fastighetsreferens-1", fastighetsreferens),
-            Inteckning("$fastighetsreferens-2", fastighetsreferens),
-            Inteckning("$fastighetsreferens-3", fastighetsreferens)
-        )
+            return listOf(
+                Inteckning("$fastighetsreferens-1", fastighetsreferens),
+                Inteckning("$fastighetsreferens-2", fastighetsreferens),
+                Inteckning("$fastighetsreferens-3", fastighetsreferens)
+            )
+        }
     }
-
 }
 
 @Repository
-class ValvetRepository(private val webClient: WebClient) {
+class ValvetRepository(
+    @Value("\${semaphore.valvet.size}") semaphoreSize: Int,
+    private val webClient: WebClient
+) {
 
     private val logger: Logger = LoggerFactory.getLogger(this.javaClass)
 
+    private val semaphore = Semaphore(semaphoreSize)
+
     suspend fun getPant(inteckningsreferens: String): Pant {
-        logger.info("Hämtar panter för inteckningsreferens $inteckningsreferens")
+        semaphore.withPermit {
+            logger.info("Hämtar panter för inteckningsreferens $inteckningsreferens")
 
-        webClient.get()
-            .uri("/Valvet-inteckningsreferens:$inteckningsreferens/1000")
-            .awaitExchange()
-            .awaitBody<ApplicationDelay>()
+            webClient.get()
+                .uri("/Valvet-inteckningsreferens:$inteckningsreferens/1000")
+                .awaitExchange()
+                .awaitBody<ApplicationDelay>()
 
-        return Pant("$inteckningsreferens-1", inteckningsreferens)
+            return Pant("$inteckningsreferens-1", inteckningsreferens)
+        }
     }
 }
 
