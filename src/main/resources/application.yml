@@ -1,0 +1,3 @@
+spring.main.web-application-type: NONE
+
+repository.baseUrl: http://localhost:8080
