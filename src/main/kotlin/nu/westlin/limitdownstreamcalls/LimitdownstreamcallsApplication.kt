@@ -1,10 +1,10 @@
-@file:Suppress("UNUSED_VARIABLE", "unused")
+@file:Suppress("UNUSED_VARIABLE", "unused", "EXPERIMENTAL_API_USAGE")
 
 package nu.westlin.limitdownstreamcalls
 
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.newFixedThreadPoolContext
 import kotlinx.coroutines.runBlocking
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -46,11 +46,13 @@ class DoShit(
     private val logger: Logger = LoggerFactory.getLogger(this.javaClass)
 
     fun runShit() {
+
+        val dispatcher = newFixedThreadPoolContext(1, "Fixed")
         val execTime = measureTimeMillis {
             runBlocking {
                 val uuidn = pantameraRepository.getFastighetsreferensen()
                 uuidn.map { uuid ->
-                    async(Dispatchers.Default) {
+                    async(dispatcher) {
                         logger.info("Arbetar med fastighetsreferens $uuid")
                         val inteckningar = dominiumRepository.getInteckningar(uuid)
                         val panter: List<Pant> = inteckningar.map { valvetRepository.getPant(it.id) }
