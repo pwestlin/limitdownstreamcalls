@@ -2,6 +2,7 @@
 
 package nu.westlin.limitdownstreamcalls
 
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
@@ -48,20 +49,38 @@ class DoShit(
 
     fun runShit() {
 
-        val mainSemaphore = Semaphore(1)
+        // TODO petves: Begränsa detta med en trådpool istället?
+        val mainSemaphore = Semaphore(100)
+
+        // Dominium klarar 10 samtidiga anrop
+        val dominiumSemaphore = Semaphore(10)
+        // Valvet klarar 20 samtidiga anrop
+        val valvetSemaphore = Semaphore(1)
+        // Pantamera klarar 40 samtidiga anrop
+        val pantameraSemaphore = Semaphore(10)
 
         val execTime = measureTimeMillis {
             runBlocking {
                 val uuidn = pantameraRepository.getFastighetsreferensen()
                 uuidn.map { uuid ->
                     async {
-                        mainSemaphore.withPermit {
-                            logger.info("Arbetar med fastighetsreferens $uuid")
-                            val inteckningar = dominiumRepository.getInteckningar(uuid)
-                            val panter: List<Pant> = inteckningar.map { valvetRepository.getPant(it.id) }
-                            val antalInteckningar: Int = pantameraRepository.getAntalInteckningar(uuid)
-                            logger.info("Klar med fastighetsreferens $uuid")
+                        logger.info("Arbetar med fastighetsreferens $uuid")
+
+                        val inteckningar = async {
+                            dominiumSemaphore.withPermit { dominiumRepository.getInteckningar(uuid) }
                         }
+                        val panter: List<Deferred<Pant>> = inteckningar.await().map {
+                            valvetSemaphore.withPermit {
+                                async { valvetRepository.getPant(it.id) }
+                            }
+                        }
+                        val antalInteckningar: Deferred<Int> = pantameraSemaphore.withPermit {
+                            async { pantameraRepository.getAntalInteckningar(uuid) }
+                        }
+                        panter.awaitAll()
+                        antalInteckningar.await()
+
+                        logger.info("Klar med fastighetsreferens $uuid")
                     }
                 }.awaitAll()
             }
@@ -77,7 +96,7 @@ class PantameraRepository(private val webClient: WebClient) {
 
     private val logger: Logger = LoggerFactory.getLogger(this.javaClass)
 
-    private val fastighetsreferenser = (1..100).map { it.toString() }.toList()
+    private val fastighetsreferenser = (1..20).map { it.toString() }.toList()
 
     suspend fun getFastighetsreferensen(): List<String> {
         webClient.get()
@@ -125,13 +144,14 @@ class ValvetRepository(private val webClient: WebClient) {
     private val logger: Logger = LoggerFactory.getLogger(this.javaClass)
 
     suspend fun getPant(inteckningsreferens: String): Pant {
+        logger.info("Hämtar panter för inteckningsreferens $inteckningsreferens")
+
         webClient.get()
-            .uri("/Valvet-inteckningsreferens:$inteckningsreferens/100")
+            .uri("/Valvet-inteckningsreferens:$inteckningsreferens/1000")
             .awaitExchange()
             .awaitBody<ApplicationDelay>()
 
         return Pant("$inteckningsreferens-1", inteckningsreferens)
-
     }
 }
 
