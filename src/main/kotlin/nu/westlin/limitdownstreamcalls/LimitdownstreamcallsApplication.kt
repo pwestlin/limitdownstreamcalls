@@ -1,5 +1,9 @@
+@file:Suppress("UNUSED_VARIABLE", "unused")
+
 package nu.westlin.limitdownstreamcalls
 
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -44,13 +48,15 @@ class DoShit(
         val execTime = measureTimeMillis {
             runBlocking {
                 val uuidn = pantameraRepository.getFastighetsreferensen()
-                uuidn.forEach { uuid ->
-                    logger.info("Arbetar med fastighetsreferens $uuid")
-                    val inteckningar = dominiumRepository.getInteckningar(uuid)
-                    val panter: List<Pant> = inteckningar.map { valvetRepository.getPant(it.id) }
-                    val antalInteckningar: Int = pantameraRepository.getAntalInteckningar(uuid)
-                    logger.info("Klar med fastighetsreferens $uuid")
-                }
+                uuidn.map { uuid ->
+                    async {
+                        logger.info("Arbetar med fastighetsreferens $uuid")
+                        val inteckningar = dominiumRepository.getInteckningar(uuid)
+                        val panter: List<Pant> = inteckningar.map { valvetRepository.getPant(it.id) }
+                        val antalInteckningar: Int = pantameraRepository.getAntalInteckningar(uuid)
+                        logger.info("Klar med fastighetsreferens $uuid")
+                    }
+                }.awaitAll()
             }
         }
 
