@@ -2,6 +2,7 @@
 
 package nu.westlin.limitdownstreamcalls
 
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
@@ -49,7 +50,7 @@ class DoShit(
             runBlocking {
                 val uuidn = pantameraRepository.getFastighetsreferensen()
                 uuidn.map { uuid ->
-                    async {
+                    async(Dispatchers.Default) {
                         logger.info("Arbetar med fastighetsreferens $uuid")
                         val inteckningar = dominiumRepository.getInteckningar(uuid)
                         val panter: List<Pant> = inteckningar.map { valvetRepository.getPant(it.id) }
